@@ -1,0 +1,116 @@
+﻿services:
+  oteldemo.api:
+    image: oteldemo.api
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: OtelDemo.Api/Dockerfile
+    ports:
+      - "8081:8081"
+      - "8080:8080"
+    networks:
+      oteldemo:
+    environment:
+      - "ServiceBus__Namespace=Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+    healthcheck:
+      test:  curl -f http://localhost:8080/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
+
+  oteldemo.apples:
+    depends_on:
+      oteldemo.api:
+        condition: service_healthy
+    restart: unless-stopped
+    image: oteldemo.apples
+    build:
+      context: .
+      dockerfile: OtelDemo.Apples/Dockerfile
+    networks:
+      oteldemo:
+    environment:
+      - "ServiceBus__Namespace=Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+
+  oteldemo.peaches:
+    depends_on:
+      oteldemo.api:
+        condition: service_healthy
+    restart: unless-stopped
+    image: oteldemo.peaches
+    build:
+      context: .
+      dockerfile: OtelDemo.Peaches/Dockerfile
+    networks:
+      oteldemo:
+    environment:
+      - "ServiceBus__Namespace=Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+
+  oteldemo.pears:
+    depends_on:
+      oteldemo.api:
+        condition: service_healthy
+    restart: unless-stopped
+    image: oteldemo.pears
+    build:
+      context: .
+      dockerfile: OtelDemo.Pears/Dockerfile
+    networks:
+      oteldemo:
+    environment:
+      - "ServiceBus__Namespace=Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+        
+  oteldemo.kiwis:
+    depends_on:
+      oteldemo.api:
+        condition: service_healthy
+    restart: unless-stopped
+    image: oteldemo.kiwis
+    build:
+      context: .
+      dockerfile: OtelDemo.Kiwis/Dockerfile
+    networks:
+      oteldemo:
+    environment:
+      - "ServiceBus__Namespace=Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
+  
+  
+  oteldemo.dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    ports:
+      - "18888:18888"
+      - "4317:18889"
+    networks:
+      oteldemo:
+  
+  emulator:
+    container_name: "servicebus-emulator"
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    volumes:
+      - "./servicebus-config.json:/ServiceBus_Emulator/ConfigFiles/Config.json"
+    ports:
+      - "5672:5672"
+    environment:
+      SQL_SERVER: sqledge
+      MSSQL_SA_PASSWORD: Pass@w0rd1!
+      ACCEPT_EULA: y
+    depends_on:
+      - sqledge
+    networks:
+      oteldemo:
+        aliases:
+          - "sb-emulator"
+  sqledge:
+      container_name: "sqledge"
+      image: "mcr.microsoft.com/azure-sql-edge:latest"
+      networks:
+        oteldemo:
+          aliases:
+            - "sqledge"
+      environment:
+        ACCEPT_EULA: Y
+        MSSQL_SA_PASSWORD: Pass@w0rd1!
+    
+networks:
+  oteldemo:

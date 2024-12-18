@@ -1,3 +1,3 @@
-﻿namespace OtelDemo.Peaches;
+﻿namespace OtelDemo.Shared;
 
 public record OtelDemoMessage(bool UseLinks);
