@@ -37,3 +37,5 @@ curl --request POST \
   "StartNewTrace": true # If true, start a new trace for each message, otherwise use the http request trace as parent
 }'
 ```
+
+![alt text](image.png)
