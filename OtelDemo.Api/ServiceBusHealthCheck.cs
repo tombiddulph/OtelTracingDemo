@@ -25,7 +25,7 @@ public class ServiceBusHealthCheck(
             var message = new ServiceBusMessage("Health check");
             message.ApplicationProperties.Add(Constants.MessageType, Constants.HealthCheck);
             var senderTask = sender.SendMessageAsync(message, cancellationToken);
-            
+
             var result = await Task.WhenAny(senderTask, timeoutTask);
 
             if (result == timeoutTask)

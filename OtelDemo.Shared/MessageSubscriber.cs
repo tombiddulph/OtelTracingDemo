@@ -26,9 +26,9 @@ public abstract class MessageSubscriberBase : BackgroundService, IAsyncDisposabl
         {
             Sender = senderFactory?.CreateClient(options.Value.SenderName)!;
         }
- 
+
     }
-    
+
     protected MessageSubscriberBase(
         IAzureClientFactory<ServiceBusProcessor> processorFactory,
         IOptions<MessageSubscriberSettings> options,
@@ -60,10 +60,10 @@ public abstract class MessageSubscriberBase : BackgroundService, IAsyncDisposabl
 
     private Task ProcessMessageAsync(ProcessMessageEventArgs arg) => HandleMessage(arg, _cts.Token);
 
-    protected virtual  ValueTask DisposeAsyncCore()
+    protected virtual ValueTask DisposeAsyncCore()
     {
         // TODO release managed resources here
-        
+
         return ValueTask.CompletedTask;
     }
 
@@ -96,7 +96,7 @@ public class MessageSubscriberSettings
 {
     public string ProcessorQueueOrTopicName { get; set; } = null!;
     public string? SenderName { get; set; } = null!;
-    
+
     public string SubscriptionName { get; set; } = null!;
 
     public List<string> Senders = [];

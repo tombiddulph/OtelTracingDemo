@@ -72,9 +72,29 @@ public static class HostApplicationBuilderExtensions
                 builder.AddSource("Azure.*");
                 builder.AddHttpClientInstrumentation();
                 customTracing?.Invoke(builder);
-                builder.AddAzureMonitorTraceExporter();
+                builder.SetSampler(new AlwaysOnSampler());
+                builder.SetErrorStatusOnException();
+
+
+                if (Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") is { } connectionString && !string.IsNullOrEmpty(connectionString))
+                {
+                    builder.AddAzureMonitorTraceExporter(ops =>
+                    {
+                        ops.ConnectionString = connectionString;
+                    });
+                }
+
             })
-            .WithMetrics(builder => { builder.AddAzureMonitorMetricExporter(); })
+            .WithMetrics(builder =>
+            {
+                if (Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") is { } connectionString && !string.IsNullOrEmpty(connectionString))
+                {
+                    builder.AddAzureMonitorMetricExporter(ops =>
+                    {
+                        ops.ConnectionString = connectionString;
+                    });
+                }
+            })
             .WithLogging(builder => { })
             .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.dashboard:18889"));
     }

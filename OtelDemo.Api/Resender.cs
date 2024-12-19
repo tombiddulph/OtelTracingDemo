@@ -8,7 +8,7 @@ namespace OtelDemo.Api;
 
 public class Resender : MessageSubscriberBase
 {
-    
+
     public Resender(IAzureClientFactory<ServiceBusSender> senderFactory,
         IAzureClientFactory<ServiceBusProcessor> processorFactory,
         IOptions<MessageSubscriberSettings> options,
@@ -21,8 +21,8 @@ public class Resender : MessageSubscriberBase
             _destinationQueues.Add(destinationQueue.Key, senderFactory.CreateClient(destinationQueue.Value));
         }
     }
-    
-    private readonly Dictionary<string,ServiceBusSender> _destinationQueues= new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, ServiceBusSender> _destinationQueues = new(StringComparer.OrdinalIgnoreCase);
 
     public override async Task HandleMessage(ProcessMessageEventArgs args, CancellationToken token)
     {
@@ -40,8 +40,7 @@ public class Resender : MessageSubscriberBase
             };
 
             newMessage.InjectContext();
-            var destinationQueue =
-                args.Message.ApplicationProperties.TryGetValue(Constants.DestinationQueueName, out var value);
+            var destinationQueue = args.Message.ApplicationProperties.TryGetValue(Constants.DestinationQueueName, out var value);
 
             if (!destinationQueue)
             {

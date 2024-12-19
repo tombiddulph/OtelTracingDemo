@@ -11,9 +11,9 @@ public class ApiTopicSubscriber(IAzureClientFactory<ServiceBusSender> senderFact
     public override async Task HandleMessage(ProcessMessageEventArgs args, CancellationToken token)
     {
         var otelDemoMessage = args.Message.Body.ToObjectFromJson<OtelDemoMessage>()!;
-        
+
         using var activity = ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks);
-        
+
         activity?.AddEvent(new ActivityEvent("Processing message"));
 
         var newMessage = new ServiceBusMessage(args.Message.Body)

@@ -9,7 +9,7 @@ public static class ContextHelper
 {
     public static Activity? CreateActivityFromMessage(this ActivitySource source, ServiceBusReceivedMessage message, bool useLinks)
     {
-        Activity? activity = null;
+        Activity? activity;
         var context = Propagators.DefaultTextMapPropagator.Extract(default, message.ApplicationProperties,
             (props, key) =>
             {
@@ -21,6 +21,7 @@ public static class ContextHelper
                 return [];
             });
 
+        Baggage.Current = context.Baggage;
 
         if (useLinks)
         {
@@ -33,7 +34,7 @@ public static class ContextHelper
                 ? source.StartActivity("ProcessMessage", ActivityKind.Consumer, context.ActivityContext)
                 : source.StartActivity(name: "ProcessMessage", ActivityKind.Consumer);
         }
-     
+
 
         return activity;
     }

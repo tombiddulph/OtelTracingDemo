@@ -8,6 +8,7 @@ using OpenTelemetry;
 using OpenTelemetry.Trace;
 using OtelDemo.Api;
 using OtelDemo.Shared;
+using Scalar.AspNetCore;
 using ActivityConfig = OtelDemo.Api.ActivityConfig;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,7 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
-builder.AddServiceBus(processorName:"mangoes", senderNames:["api-topic", "kiwis","pears", "peaches" ]);
+builder.AddServiceBus(processorName: "mangoes", senderNames: ["api-topic", "kiwis", "pears", "peaches"]);
 builder.AddOpenTelemetry(ActivityConfig.Source.Name, opts => opts.AddAspNetCoreInstrumentation());
 
 builder.Services.AddOptions<HealthCheckSettings>().Bind(builder.Configuration.GetSection("HealthCheckSettings"));
@@ -28,14 +29,11 @@ var app = builder.Build();
 
 app.MapHealthChecks("/health");
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
+app.MapOpenApi();
+app.MapScalarApiReference();
 app.UseHttpsRedirection();
 
-app.MapPost("/start-process", async ([FromBody] StartProcessMessage processMessage, [FromServices]IAzureClientFactory<ServiceBusSender> senderFactory) =>
+app.MapPost("/start-process", async ([FromBody] StartProcessMessage processMessage, [FromServices] IAzureClientFactory<ServiceBusSender> senderFactory) =>
         {
             using var activity = ActivityConfig.Source.StartActivity("StartProcess");
             var sender = senderFactory.CreateClient("api-topic");
@@ -50,7 +48,7 @@ app.MapPost("/start-process", async ([FromBody] StartProcessMessage processMessa
                 activity?.AddEvent(new ActivityEvent("Sending message",
                     tags: new ActivityTagsCollection
                         { new KeyValuePair<string, object?>("MessageId", message.MessageId) }));
-                
+
                 Baggage.SetBaggage("UseLinks", processMessage.UseLinks.ToString());
 
                 if (processMessage.StartNewTrace)
@@ -68,8 +66,6 @@ app.MapPost("/start-process", async ([FromBody] StartProcessMessage processMessa
                     message.InjectContext();
                     messages.Add(message);
                 }
-                
-                
             }
 
             await sender.SendMessagesAsync(messages);
@@ -78,7 +74,7 @@ app.MapPost("/start-process", async ([FromBody] StartProcessMessage processMessa
     .WithName("StartProcess")
     .WithDescription("Starts a process that sends messages to the api-topic queue")
     .WithHttpLogging(HttpLoggingFields.All)
-    .Produces<StartProcessMessage>(200);
+    .Produces<StartProcessResponse>(200);
 
 app.Run();
 

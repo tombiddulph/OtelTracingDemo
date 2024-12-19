@@ -3,7 +3,7 @@ using OtelDemo.Shared;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.AddOpenTelemetry("OtelDemo.Peaches");
-builder.AddServiceBus("peaches", senderNames:"mangoes");
+builder.AddServiceBus("peaches", senderNames: "mangoes");
 builder.Services.AddOptions<MessageSubscriberSettings>().Bind(builder.Configuration.GetSection("MessageSubscriberSettings"));
 builder.Services.AddHostedService<PeachesSubscriber>();
 
