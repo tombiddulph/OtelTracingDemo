@@ -18,12 +18,12 @@ jobs:
           - dockerfile: ./OtelDemo.Api/Dockerfile
             image: ghcr.io/tombiddulph/OtelDemo.Api
           - dockerfile: ./OtelDemo.Apples/Dockerfile
-            image: ghcr.io/username/OtelDemo.Apples
+            image: ghcr.io/tombiddulph/OtelDemo.Apples
           - dockerfile: ./OtelDemo.Kiwis/Dockerfile
             image: ghcr.io/tombiddulph/OtelDemo.Kiwis
           - dockerfile: ./OtelDemo.Peaches/Dockerfile
             image: ghcr.io/tombiddulph/OtelDemo.Peaches
-          - dockerfile: ./OtelDemo.Peaches/Pears
+          - dockerfile: ./OtelDemo.Pears/Dockerfile
             image: ghcr.io/tombiddulph/OtelDemo.Pears
 
     permissions:
@@ -47,7 +47,7 @@ jobs:
         with:
           images: ${{ matrix.image }}
 
-      - name: Build and push Docker image Drill4Net.Agent.Service
+      - name: Build and push Docker image to registry
         uses: docker/build-push-action@v6
         with:
           context: .
