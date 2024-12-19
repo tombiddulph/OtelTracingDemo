@@ -11,7 +11,7 @@ using OtelDemo.Shared;
 using Scalar.AspNetCore;
 using ActivityConfig = OtelDemo.Api.ActivityConfig;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateSlimBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -22,7 +22,8 @@ builder.AddOpenTelemetry(ActivityConfig.Source.Name, opts => opts.AddAspNetCoreI
 builder.Services.AddOptions<HealthCheckSettings>().Bind(builder.Configuration.GetSection("HealthCheckSettings"));
 
 builder.Services.AddOptions<DestinationQueueSettings>().Bind(builder.Configuration.GetSection("DestinationQueues"));
-builder.Services.AddOptions<MessageSubscriberSettings>().Bind(builder.Configuration.GetSection("MessageSubscriberSettings"));
+builder.Services.AddOptions<MessageSubscriberSettings>()
+    .Bind(builder.Configuration.GetSection("MessageSubscriberSettings"));
 builder.Services.AddHealthChecks().AddCheck<ServiceBusHealthCheck>("ServiceBusHealthCheck");
 builder.Services.AddHostedService<Resender>();
 var app = builder.Build();
@@ -33,48 +34,65 @@ app.MapOpenApi();
 app.MapScalarApiReference();
 app.UseHttpsRedirection();
 
-app.MapPost("/start-process", async ([FromBody] StartProcessMessage processMessage, [FromServices] IAzureClientFactory<ServiceBusSender> senderFactory) =>
+app.MapPost("/start-process", async (
+        [FromBody] StartProcessMessage processMessage,
+        [FromServices] IAzureClientFactory<ServiceBusSender> senderFactory) =>
+    {
+        using var activity = ActivityConfig.Source.StartActivity("StartProcess");
+        var sender = senderFactory.CreateClient("api-topic");
+        var messages = new List<ServiceBusMessage>();
+        for (var i = 0; i < processMessage.NumberOfMessages; i++)
         {
-            using var activity = ActivityConfig.Source.StartActivity("StartProcess");
-            var sender = senderFactory.CreateClient("api-topic");
-            var messages = new List<ServiceBusMessage>();
-            for (var i = 0; i < processMessage.NumberOfMessages; i++)
+            var message = new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
             {
-                var message = new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
-                {
-                    ContentType = "application/json",
-                    MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
-                };
-                activity?.AddEvent(new ActivityEvent("Sending message",
-                    tags: new ActivityTagsCollection
-                        { new KeyValuePair<string, object?>("MessageId", message.MessageId) }));
+                ContentType = "application/json",
+                MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
+            };
+            activity?.AddEvent(new ActivityEvent("Sending message",
+                tags: new ActivityTagsCollection
+                    { new KeyValuePair<string, object?>("MessageId", message.MessageId) }));
 
-                Baggage.SetBaggage("UseLinks", processMessage.UseLinks.ToString());
+            Baggage.SetBaggage("UseLinks", processMessage.UseLinks.ToString());
 
-                if (processMessage.StartNewTrace)
-                {
-                    var currentActivity = Activity.Current;
-                    Activity.Current = null;
-                    var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
-                    message.InjectContext();
-                    messages.Add(message);
-                    newActivity?.Dispose();
-                    Activity.Current = currentActivity;
-                }
-                else
-                {
-                    message.InjectContext();
-                    messages.Add(message);
-                }
+            if (processMessage.StartNewTrace)
+            {
+                var currentActivity = Activity.Current;
+                Activity.Current = null;
+                var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
+                message.InjectContext();
+                messages.Add(message);
+                newActivity?.Dispose();
+                Activity.Current = currentActivity;
             }
+            else if (processMessage is { StartNewTrace: true, UseLinks: true })
+            {
+                var currentActivity = Activity.Current;
+                Activity.Current = null;
+                var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
+                if (currentActivity is not null)
+                {
+                    newActivity?.AddLink(new ActivityLink(currentActivity.Context));
+                }
+                message.InjectContext();
+                messages.Add(message);
+                newActivity?.Dispose();
+                Activity.Current = currentActivity;
+            }
+            else
+            {
+                message.InjectContext();
+                messages.Add(message);
+            }
+        }
 
-            await sender.SendMessagesAsync(messages);
-            return Results.Ok(new StartProcessResponse(processMessage.UseLinks, messages.Select(m => m.MessageId).ToList(), processMessage.StartNewTrace));
-        })
+        await sender.SendMessagesAsync(messages);
+        return Results.Ok(new StartProcessResponse(processMessage.UseLinks, messages.Select(m => m.MessageId).ToList(),
+            processMessage.StartNewTrace));
+    })
     .WithName("StartProcess")
     .WithDescription("Starts a process that sends messages to the api-topic queue")
     .WithHttpLogging(HttpLoggingFields.All)
-    .Produces<StartProcessResponse>(200);
+    .Produces<StartProcessResponse>(StatusCodes.Status200OK, "application/json");
 
 app.Run();
 
@@ -92,4 +110,3 @@ public class DestinationQueueSettings
 {
     public Dictionary<string, string> Queues { get; set; } = new();
 }
-

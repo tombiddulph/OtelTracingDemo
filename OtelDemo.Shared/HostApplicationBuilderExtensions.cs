@@ -94,6 +94,9 @@ public static class HostApplicationBuilderExtensions
                         ops.ConnectionString = connectionString;
                     });
                 }
+
+                builder.AddProcessInstrumentation().AddRuntimeInstrumentation().AddHttpClientInstrumentation()
+                    .AddAspNetCoreInstrumentation();
             })
             .WithLogging(builder => { })
             .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.dashboard:18889"));
