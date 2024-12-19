@@ -52,6 +52,14 @@ jobs:
         with:
           versionSpec: "0.18.x"
 
+      - name: Create Release
+        uses: gittools/actions/gitreleasemanager/create@v3.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: "tombiddulph"
+          repository: ${{ github.repository }}
+          milestone: ${{ steps.version_step.outputs.GitVersion_FullSemVer }}
+    
       - name: Publish release with GitReleaseManager
         uses: gittools/actions/gitreleasemanager/publish@v3.1.1
         with:
@@ -79,5 +87,5 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.version_step.outputs.GitVersion_FullSemVer  }}
           labels: ${{ steps.meta.outputs.labels }}
