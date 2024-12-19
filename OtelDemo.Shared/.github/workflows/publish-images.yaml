@@ -1,0 +1,56 @@
+name: Build & publish OtelDemo images
+on:
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-image:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./OtelDemo.Api/Dockerfile
+            image: ghcr.io/tombiddulph/OtelDemo.Api
+          - dockerfile: ./OtelDemo.Apples/Dockerfile
+            image: ghcr.io/username/OtelDemo.Apples
+          - dockerfile: ./OtelDemo.Kiwis/Dockerfile
+            image: ghcr.io/tombiddulph/OtelDemo.Kiwis
+          - dockerfile: ./OtelDemo.Peaches/Dockerfile
+            image: ghcr.io/tombiddulph/OtelDemo.Peaches
+          - dockerfile: ./OtelDemo.Peaches/Pears
+            image: ghcr.io/tombiddulph/OtelDemo.Pears
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GH_PACKAGE_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+
+      - name: Build and push Docker image Drill4Net.Agent.Service
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
