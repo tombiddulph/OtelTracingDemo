@@ -26,8 +26,10 @@ builder.Services.AddOptions<MessageSubscriberSettings>()
     .Bind(builder.Configuration.GetSection("MessageSubscriberSettings"));
 builder.Services.AddHealthChecks().AddCheck<ServiceBusHealthCheck>("ServiceBusHealthCheck");
 builder.Services.AddHostedService<Resender>();
+builder.Services.AddProblemDetails();
 var app = builder.Build();
 
+app.UseStatusCodePages();
 app.MapHealthChecks("/health");
 // Configure the HTTP request pipeline.
 app.MapOpenApi();
@@ -42,16 +44,16 @@ app.MapPost("/start-process", async (
         var sender = senderFactory.CreateClient("api-topic");
 
 
-        var result =   processMessage.Batch switch
+        var result = processMessage.Batch switch
         {
             true => await HandleBatch(processMessage, sender),
             false => await HandleNonBatch(processMessage, sender)
         };
 
         return result;
-        
 
-       
+
+
 
         static async Task<IResult> HandleNonBatch(StartProcessMessage processMessage, ServiceBusSender sender)
         {
@@ -104,7 +106,8 @@ app.MapPost("/start-process", async (
             await sender.SendMessagesAsync(messages);
             return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
                 messages.Select(m => m.MessageId).ToList(),
-                processMessage.StartNewTrace));
+                processMessage.StartNewTrace,
+                processMessage.Batch));
         }
 
         static async Task<IResult> HandleBatch(StartProcessMessage processMessage, ServiceBusSender sender)
@@ -115,9 +118,9 @@ app.MapPost("/start-process", async (
                     ContentType = "application/json",
                     MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
                 }).ToList();
-            
+
             var messages = new List<ServiceBusMessage>();
-            
+
             Activity.Current?.AddEvent(new ActivityEvent("Sending messages",
                 tags: new ActivityTagsCollection
                     { new KeyValuePair<string, object?>("MessageIds", string.Join(",", serviceBusMessages.Select(m => m.MessageId))) }));
@@ -175,7 +178,8 @@ app.MapPost("/start-process", async (
             await sender.SendMessagesAsync(batch);
             return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
                 messages.Select(m => m.MessageId).ToList(),
-                processMessage.StartNewTrace));
+                processMessage.StartNewTrace,
+                processMessage.Batch));
         }
     })
     .WithName("StartProcess")
@@ -189,7 +193,7 @@ app.Run();
 
 record StartProcessMessage(bool UseLinks, int NumberOfMessages, bool StartNewTrace, bool Batch);
 
-record StartProcessResponse(bool UseLinks, List<string> messageIds, bool StartNewTrace);
+record StartProcessResponse(bool UseLinks, List<string> MessageIds, bool StartNewTrace, bool Batch);
 
 public class HealthCheckSettings
 {

@@ -35,10 +35,10 @@ public static class ContextHelper
                 true => context,
                 false => default
             };
-            
+
             activity = source.StartActivity("ProcessMessage", ActivityKind.Consumer, propagationContext.ActivityContext);
-            
-          
+
+
         }
 
 

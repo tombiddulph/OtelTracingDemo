@@ -5,6 +5,7 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+
 processors:
   batch:
 
@@ -12,7 +13,9 @@ exporters:
   debug:
     verbosity: detailed
   otlp:
-    endpoint: http://oteldemo.dashboard:18890
+    endpoint: http://aspire-dashboard:18889
+    tls:
+      insecure: true
 
 service:
   pipelines:
@@ -23,7 +26,7 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp]
+      exporters: [otlp, debug]
     logs:
       receivers: [otlp]
       processors: [batch]
