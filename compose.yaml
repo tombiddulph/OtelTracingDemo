@@ -1,5 +1,7 @@
 ﻿services:
   oteldemo.api:
+    depends_on:
+      - emulator
     image: oteldemo.api
     restart: unless-stopped
     build:
@@ -77,12 +79,17 @@
   
   
   oteldemo.dashboard:
-    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.3
     ports:
       - "18888:18888"
-      - "4317:18889"
+      - "18890:18890"
+      - "18889:18889"
+    environment:
+      - DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true
     networks:
       oteldemo:
+         aliases:
+          - "aspire-dashboard"
   
   emulator:
     container_name: "servicebus-emulator"
@@ -92,25 +99,42 @@
     ports:
       - "5672:5672"
     environment:
-      SQL_SERVER: sqledge
+      SQL_SERVER: sqlserver
       MSSQL_SA_PASSWORD: Pass@w0rd1!
       ACCEPT_EULA: y
     depends_on:
-      - sqledge
+      - sqlserver
     networks:
       oteldemo:
         aliases:
           - "sb-emulator"
-  sqledge:
-      container_name: "sqledge"
-      image: "mcr.microsoft.com/azure-sql-edge:latest"
+  sqlserver:
+      container_name: "sqlserver"
+      image: "mcr.microsoft.com/mssql/server:latest"
       networks:
         oteldemo:
           aliases:
-            - "sqledge"
+            - "sqlserver"
       environment:
         ACCEPT_EULA: Y
         MSSQL_SA_PASSWORD: Pass@w0rd1!
-    
+  oteldemo.collector:
+    container_name: otelcol
+    image: otelcol-dev
+    restart: unless-stopped
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    volumes:
+      - ./collector/collector-config.yaml:/etc/otelcol/config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"
+    networks:
+      oteldemo:
+        aliases:
+          - "otelcol"
+
 networks:
   oteldemo:

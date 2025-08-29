@@ -30,9 +30,15 @@ public static class ContextHelper
         }
         else
         {
-            activity = context.ActivityContext.IsValid()
-                ? source.StartActivity("ProcessMessage", ActivityKind.Consumer, context.ActivityContext)
-                : source.StartActivity(name: "ProcessMessage", ActivityKind.Consumer);
+            var propagationContext = context.ActivityContext.IsValid() switch
+            {
+                true => context,
+                false => default
+            };
+            
+            activity = source.StartActivity("ProcessMessage", ActivityKind.Consumer, propagationContext.ActivityContext);
+            
+          
         }
 
 

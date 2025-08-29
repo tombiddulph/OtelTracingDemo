@@ -99,6 +99,6 @@ public static class HostApplicationBuilderExtensions
                     .AddAspNetCoreInstrumentation();
             })
             .WithLogging(builder => { })
-            .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.dashboard:18889"));
+            .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.collector:4317"));
     }
 }

@@ -40,27 +40,99 @@ app.MapPost("/start-process", async (
     {
         using var activity = ActivityConfig.Source.StartActivity("StartProcess");
         var sender = senderFactory.CreateClient("api-topic");
-        var messages = new List<ServiceBusMessage>();
-        for (var i = 0; i < processMessage.NumberOfMessages; i++)
-        {
-            var message = new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
-            {
-                ContentType = "application/json",
-                MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
-            };
-            activity?.AddEvent(new ActivityEvent("Sending message",
-                tags: new ActivityTagsCollection
-                    { new KeyValuePair<string, object?>("MessageId", message.MessageId) }));
 
-            Baggage.SetBaggage("UseLinks", processMessage.UseLinks.ToString());
+
+        var result =   processMessage.Batch switch
+        {
+            true => await HandleBatch(processMessage, sender),
+            false => await HandleNonBatch(processMessage, sender)
+        };
+
+        return result;
+        
+
+       
+
+        static async Task<IResult> HandleNonBatch(StartProcessMessage processMessage, ServiceBusSender sender)
+        {
+            var messages = new List<ServiceBusMessage>();
+            for (var i = 0; i < processMessage.NumberOfMessages; i++)
+            {
+                var message = new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
+                {
+                    ContentType = "application/json",
+                    MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
+                };
+                Activity.Current?.AddEvent(new ActivityEvent("Sending message",
+                    tags: new ActivityTagsCollection
+                        { new KeyValuePair<string, object?>("MessageId", message.MessageId) }));
+
+                Baggage.SetBaggage("UseLinks", processMessage.UseLinks.ToString());
+
+                if (processMessage.StartNewTrace)
+                {
+                    var currentActivity = Activity.Current;
+                    Activity.Current = null;
+                    var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
+                    message.InjectContext();
+                    messages.Add(message);
+                    newActivity?.Dispose();
+                    Activity.Current = currentActivity;
+                }
+                else if (processMessage is { StartNewTrace: true, UseLinks: true })
+                {
+                    var currentActivity = Activity.Current;
+                    Activity.Current = null;
+                    var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
+                    if (currentActivity is not null)
+                    {
+                        newActivity?.AddLink(new ActivityLink(currentActivity.Context));
+                    }
+
+                    message.InjectContext();
+                    messages.Add(message);
+                    newActivity?.Dispose();
+                    Activity.Current = currentActivity;
+                }
+                else
+                {
+                    message.InjectContext();
+                    messages.Add(message);
+                }
+            }
+
+            await sender.SendMessagesAsync(messages);
+            return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
+                messages.Select(m => m.MessageId).ToList(),
+                processMessage.StartNewTrace));
+        }
+
+        static async Task<IResult> HandleBatch(StartProcessMessage processMessage, ServiceBusSender sender)
+        {
+            var serviceBusMessages = Enumerable.Range(0, processMessage.NumberOfMessages).Select(x =>
+                new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
+                {
+                    ContentType = "application/json",
+                    MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
+                }).ToList();
+            
+            var messages = new List<ServiceBusMessage>();
+            
+            Activity.Current?.AddEvent(new ActivityEvent("Sending messages",
+                tags: new ActivityTagsCollection
+                    { new KeyValuePair<string, object?>("MessageIds", string.Join(",", serviceBusMessages.Select(m => m.MessageId))) }));
 
             if (processMessage.StartNewTrace)
             {
                 var currentActivity = Activity.Current;
                 Activity.Current = null;
                 var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
-                message.InjectContext();
-                messages.Add(message);
+                foreach (var serviceBusMessage in messages)
+                {
+                    serviceBusMessage.InjectContext();
+                }
+
+                messages.AddRange(serviceBusMessages);
                 newActivity?.Dispose();
                 Activity.Current = currentActivity;
             }
@@ -73,31 +145,49 @@ app.MapPost("/start-process", async (
                 {
                     newActivity?.AddLink(new ActivityLink(currentActivity.Context));
                 }
-                message.InjectContext();
-                messages.Add(message);
+
+                foreach (var serviceBusMessage in serviceBusMessages)
+                {
+                    serviceBusMessage.InjectContext();
+                }
+
+                messages.AddRange(serviceBusMessages);
                 newActivity?.Dispose();
                 Activity.Current = currentActivity;
             }
             else
             {
-                message.InjectContext();
-                messages.Add(message);
-            }
-        }
+                foreach (var serviceBusMessage in messages)
+                {
+                    serviceBusMessage.InjectContext();
+                }
 
-        await sender.SendMessagesAsync(messages);
-        return Results.Ok(new StartProcessResponse(processMessage.UseLinks, messages.Select(m => m.MessageId).ToList(),
-            processMessage.StartNewTrace));
+                messages.AddRange(serviceBusMessages);
+            }
+
+            var batch = await sender.CreateMessageBatchAsync();
+
+            foreach (var _ in messages.Where(serviceBusMessage => !batch.TryAddMessage(serviceBusMessage)))
+            {
+                return Results.BadRequest("Message too large to fit in batch");
+            }
+
+            await sender.SendMessagesAsync(batch);
+            return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
+                messages.Select(m => m.MessageId).ToList(),
+                processMessage.StartNewTrace));
+        }
     })
     .WithName("StartProcess")
     .WithDescription("Starts a process that sends messages to the api-topic queue")
     .WithHttpLogging(HttpLoggingFields.All)
     .Produces<StartProcessResponse>(StatusCodes.Status200OK, "application/json");
 
+
 app.Run();
 
 
-record StartProcessMessage(bool UseLinks, int NumberOfMessages, bool StartNewTrace);
+record StartProcessMessage(bool UseLinks, int NumberOfMessages, bool StartNewTrace, bool Batch);
 
 record StartProcessResponse(bool UseLinks, List<string> messageIds, bool StartNewTrace);
 
