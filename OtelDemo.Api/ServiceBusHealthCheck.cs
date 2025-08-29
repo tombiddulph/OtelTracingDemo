@@ -19,7 +19,7 @@ public class ServiceBusHealthCheck(
 
         try
         {
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
 
             var sender = senderFactory.CreateClient(healthCheckSettings.Value.SenderName);
             var message = new ServiceBusMessage("Health check");

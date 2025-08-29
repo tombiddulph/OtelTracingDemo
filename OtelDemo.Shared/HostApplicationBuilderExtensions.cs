@@ -1,4 +1,5 @@
-﻿using Azure.Messaging.ServiceBus;
+﻿using System.Reflection;
+using Azure.Messaging.ServiceBus;
 using Azure.Monitor.OpenTelemetry.Exporter;
 using Microsoft.Extensions.Azure;
 using Microsoft.Extensions.Configuration;
@@ -57,14 +58,15 @@ public static class HostApplicationBuilderExtensions
     public static void AddOpenTelemetry(this IHostApplicationBuilder hostBuilder, string serviceName,
         Action<TracerProviderBuilder>? customTracing = null)
     {
-        if (Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true")
-        {
-            // hostBuilder.Logging.ClearProviders();
-        }
-
-
         hostBuilder.Services.AddOpenTelemetry()
-            .ConfigureResource(r => r.AddService(serviceName))
+            .ConfigureResource(r => r.AddService(serviceName)
+                .AddAttributes([
+                    new KeyValuePair<string, object>("service.version", GetServiceVersion()),
+                    new KeyValuePair<string, object>("deployment.environment",
+                        Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "unknown"),
+                    new KeyValuePair<string, object>("service.namespace", "oteldemo"),
+                    new KeyValuePair<string, object>("container.id", Environment.MachineName)
+                ]))
             .WithTracing(builder =>
             {
                 builder.AddSource(serviceName);
@@ -74,31 +76,42 @@ public static class HostApplicationBuilderExtensions
                 customTracing?.Invoke(builder);
                 builder.SetSampler(new AlwaysOnSampler());
                 builder.SetErrorStatusOnException();
-
-
-                if (Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") is { } connectionString && !string.IsNullOrEmpty(connectionString))
-                {
-                    builder.AddAzureMonitorTraceExporter(ops =>
-                    {
-                        ops.ConnectionString = connectionString;
-                    });
-                }
-
+                builder.AddAspNetCoreInstrumentation(opts => { opts.RecordException = true; });
             })
             .WithMetrics(builder =>
             {
-                if (Environment.GetEnvironmentVariable("APPINSIGHTS_CONNECTIONSTRING") is { } connectionString && !string.IsNullOrEmpty(connectionString))
-                {
-                    builder.AddAzureMonitorMetricExporter(ops =>
-                    {
-                        ops.ConnectionString = connectionString;
-                    });
-                }
-
-                builder.AddProcessInstrumentation().AddRuntimeInstrumentation().AddHttpClientInstrumentation()
+                builder
+                    .AddMeter(serviceName)
+                    .AddProcessInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddHttpClientInstrumentation()
                     .AddAspNetCoreInstrumentation();
+
+                // Add custom metrics for Service Bus
+                builder.AddMeter("Azure.Messaging.ServiceBus");
+
+                // Add system metrics
+                builder.AddView("http.server.request.duration",
+                    new ExplicitBucketHistogramConfiguration
+                    {
+                        Boundaries = [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
+                    });
             })
             .WithLogging(builder => { })
-            .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.dashboard:18889"));
+            .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.collector:4317"));
+
+        hostBuilder.Logging.AddOpenTelemetry(options =>
+        {
+            options.SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName)
+                .AddOperatingSystemDetector().AddHostDetector());
+        });
+    }
+
+    private static string GetServiceVersion()
+    {
+        var assembly = Assembly.GetEntryAssembly();
+        return assembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+               ?? assembly?.GetName().Version?.ToString()
+               ?? "unknown";
     }
 }
