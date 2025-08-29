@@ -101,9 +101,16 @@ app.MapPost("/start-process", async (
                     message.InjectContext();
                     messages.Add(message);
                 }
+                
+                using var activity = ActivityConfig.Source.StartActivity("MessagePrepared");
+                activity?.SetTag("MessageId", message.MessageId);
+                activity?.SetTag("UseLinks", processMessage.UseLinks);
+                activity?.SetTag("StartNewTrace", processMessage.StartNewTrace);
+                activity?.SetTag("Batch", processMessage.Batch);
+                activity?.SetStatus(ActivityStatusCode.Ok);
+                await sender.SendMessageAsync(message);
             }
-
-            await sender.SendMessagesAsync(messages);
+            
             return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
                 messages.Select(m => m.MessageId).ToList(),
                 processMessage.StartNewTrace,
@@ -121,10 +128,7 @@ app.MapPost("/start-process", async (
 
             var messages = new List<ServiceBusMessage>();
 
-            Activity.Current?.AddEvent(new ActivityEvent("Sending messages",
-                tags: new ActivityTagsCollection
-                    { new KeyValuePair<string, object?>("MessageIds", string.Join(",", serviceBusMessages.Select(m => m.MessageId))) }));
-
+            using var activity = ActivityConfig.Source.StartActivity("BatchPrepared");
             if (processMessage.StartNewTrace)
             {
                 var currentActivity = Activity.Current;
