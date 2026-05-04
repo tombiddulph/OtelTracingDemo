@@ -1,11 +1,14 @@
-﻿FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+﻿FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 USER $APP_UID
 WORKDIR /app
 
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
 COPY ["OtelDemo.Kiwis/OtelDemo.Kiwis.csproj", "OtelDemo.Kiwis/"]
+COPY ["OtelDemo.Shared/OtelDemo.Shared.csproj", "OtelDemo.Shared/"]
 RUN dotnet restore "OtelDemo.Kiwis/OtelDemo.Kiwis.csproj"
 COPY . .
 WORKDIR "/src/OtelDemo.Kiwis"
