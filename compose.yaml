@@ -15,11 +15,11 @@
     environment:
       - "ServiceBus__Namespace=Endpoint=sb://servicebus-emulator;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true;"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080; printf 'GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; IFS= read -r status <&3; [[ $$status == *' 200 '* ]]"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080; printf 'GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; IFS= read -r status <&3; [[ $$status == *' 200 '* ]]"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 20
-      start_period: 5s
+      start_period: 20s
 
   oteldemo.apples:
     depends_on:

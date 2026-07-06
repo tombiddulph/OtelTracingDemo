@@ -1,10 +1,9 @@
 using System.Diagnostics;
-using System.Text.Json;
+using System.Text.Json.Serialization;
 using Azure.Messaging.ServiceBus;
 using Microsoft.AspNetCore.HttpLogging;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Azure;
-using OpenTelemetry;
 using OpenTelemetry.Trace;
 using OtelDemo.Api;
 using OtelDemo.Shared;
@@ -13,187 +12,176 @@ using ActivityConfig = OtelDemo.Api.ActivityConfig;
 
 var builder = WebApplication.CreateSlimBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 builder.AddServiceBus(processorName: "mangoes", senderNames: ["api-topic", "kiwis", "pears", "peaches"]);
 builder.AddOpenTelemetry(ActivityConfig.Source.Name, opts => opts.AddAspNetCoreInstrumentation());
 
 builder.Services.AddOptions<HealthCheckSettings>().Bind(builder.Configuration.GetSection("HealthCheckSettings"));
-
 builder.Services.AddOptions<DestinationQueueSettings>().Bind(builder.Configuration.GetSection("DestinationQueues"));
 builder.Services.AddOptions<MessageSubscriberSettings>()
     .Bind(builder.Configuration.GetSection("MessageSubscriberSettings"));
 builder.Services.AddHealthChecks().AddCheck<ServiceBusHealthCheck>("ServiceBusHealthCheck");
 builder.Services.AddHostedService<Resender>();
 builder.Services.AddProblemDetails();
+
 var app = builder.Build();
 
 app.UseStatusCodePages();
 app.MapHealthChecks("/health");
-// Configure the HTTP request pipeline.
 app.MapOpenApi();
 app.MapScalarApiReference();
 app.UseHttpsRedirection();
 
 app.MapPost("/start-process", async (
         [FromBody] StartProcessMessage processMessage,
-        [FromServices] IAzureClientFactory<ServiceBusSender> senderFactory) =>
+        [FromServices] IAzureClientFactory<ServiceBusSender> senderFactory,
+        [FromServices] ILoggerFactory loggerFactory) =>
     {
-        using var activity = ActivityConfig.Source.StartActivity("StartProcess");
-        var sender = senderFactory.CreateClient("api-topic");
+        var logger = loggerFactory.CreateLogger("StartProcess");
+        return await StartProcessAsync(processMessage, senderFactory, logger);
+    })
+    .WithName("StartProcess")
+    .WithDescription("Starts a process with fully configurable OpenTelemetry demo options")
+    .WithHttpLogging(HttpLoggingFields.All)
+    .Produces<StartProcessResponse>(StatusCodes.Status200OK, "application/json");
 
+app.MapPost("/scenarios/linear-trace", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(false, 1, false, false, FailureMode.None, DemoScenarios.LinearTrace), senderFactory, loggerFactory.CreateLogger("Scenario.LinearTrace")));
 
-        var result = processMessage.Batch switch
+app.MapPost("/scenarios/linked-trace", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(true, 1, true, false, FailureMode.None, DemoScenarios.LinkedTrace), senderFactory, loggerFactory.CreateLogger("Scenario.LinkedTrace")));
+
+app.MapPost("/scenarios/batch", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(false, 10, false, true, FailureMode.None, DemoScenarios.Batch), senderFactory, loggerFactory.CreateLogger("Scenario.Batch")));
+
+app.MapPost("/scenarios/fanout", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(true, 1, true, false, FailureMode.None, DemoScenarios.Fanout), senderFactory, loggerFactory.CreateLogger("Scenario.Fanout")));
+
+app.MapPost("/scenarios/retry-then-success", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(false, 1, false, false, FailureMode.ThrowOnce, DemoScenarios.RetryThenSuccess), senderFactory, loggerFactory.CreateLogger("Scenario.RetryThenSuccess")));
+
+app.MapPost("/scenarios/dead-letter", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(false, 1, false, false, FailureMode.AlwaysThrow, DemoScenarios.DeadLetter), senderFactory, loggerFactory.CreateLogger("Scenario.DeadLetter")));
+
+app.MapPost("/scenarios/external-call-failure", async (IAzureClientFactory<ServiceBusSender> senderFactory, ILoggerFactory loggerFactory) =>
+    await StartProcessAsync(new StartProcessMessage(false, 1, false, false, FailureMode.ExternalCallFailure, DemoScenarios.ExternalCallFailure), senderFactory, loggerFactory.CreateLogger("Scenario.ExternalCallFailure")));
+
+app.Run();
+
+static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage, IAzureClientFactory<ServiceBusSender> senderFactory, ILogger logger)
+{
+    using var activity = ActivityConfig.Source.StartActivity("api.start_process");
+    var sender = senderFactory.CreateClient("api-topic");
+    var workflowId = Guid.CreateVersion7().ToString();
+    var scenario = string.IsNullOrWhiteSpace(processMessage.Scenario) ? DemoScenarios.LinearTrace : processMessage.Scenario;
+    var messages = new List<ServiceBusMessage>();
+
+    activity?.SetTag("demo.workflow_id", workflowId);
+    activity?.SetTag("demo.scenario", scenario);
+    activity?.SetTag("demo.use_links", processMessage.UseLinks);
+    activity?.SetTag("demo.start_new_trace", processMessage.StartNewTrace);
+    activity?.SetTag("demo.batch", processMessage.Batch);
+    activity?.SetTag("demo.failure_mode", processMessage.FailureMode.ToString());
+
+    logger.LogInformation("Starting OpenTelemetry scenario {Scenario} with workflow {WorkflowId}, useLinks={UseLinks}, batch={Batch}, messages={MessageCount}, failureMode={FailureMode}",
+        scenario, workflowId, processMessage.UseLinks, processMessage.Batch, processMessage.NumberOfMessages, processMessage.FailureMode);
+
+    for (var i = 0; i < processMessage.NumberOfMessages; i++)
+    {
+        var demoMessage = new OtelDemoMessage
         {
-            true => await HandleBatch(processMessage, sender),
-            false => await HandleNonBatch(processMessage, sender)
+            WorkflowId = workflowId,
+            Scenario = scenario,
+            UseLinks = processMessage.UseLinks,
+            StartNewTrace = processMessage.StartNewTrace,
+            Batch = processMessage.Batch,
+            FailureMode = processMessage.FailureMode,
+            Step = 0
         };
 
-        return result;
+        ServiceBusMessage serviceBusMessage;
 
-
-
-
-        static async Task<IResult> HandleNonBatch(StartProcessMessage processMessage, ServiceBusSender sender)
+        if (processMessage.StartNewTrace)
         {
-            var messages = new List<ServiceBusMessage>();
-            for (var i = 0; i < processMessage.NumberOfMessages; i++)
+            var currentActivity = Activity.Current;
+            Activity.Current = null;
+
+            using (var newActivity = ActivityConfig.Source.StartActivity("api.new_trace"))
             {
-                var message = new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
-                {
-                    ContentType = "application/json",
-                    MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
-                };
-                Activity.Current?.AddEvent(new ActivityEvent("Sending message",
-                    tags: new ActivityTagsCollection
-                        { new KeyValuePair<string, object?>("MessageId", message.MessageId) }));
-
-                Baggage.SetBaggage("UseLinks", processMessage.UseLinks.ToString());
-
-                if (processMessage.StartNewTrace)
-                {
-                    var currentActivity = Activity.Current;
-                    Activity.Current = null;
-                    var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
-                    message.InjectContext();
-                    messages.Add(message);
-                    newActivity?.Dispose();
-                    Activity.Current = currentActivity;
-                }
-                else if (processMessage is { StartNewTrace: true, UseLinks: true })
-                {
-                    var currentActivity = Activity.Current;
-                    Activity.Current = null;
-                    var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
-                    if (currentActivity is not null)
-                    {
-                        newActivity?.AddLink(new ActivityLink(currentActivity.Context));
-                    }
-
-                    message.InjectContext();
-                    messages.Add(message);
-                    newActivity?.Dispose();
-                    Activity.Current = currentActivity;
-                }
-                else
-                {
-                    message.InjectContext();
-                    messages.Add(message);
-                }
-            }
-
-            await sender.SendMessagesAsync(messages);
-            return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
-                messages.Select(m => m.MessageId).ToList(),
-                processMessage.StartNewTrace,
-                processMessage.Batch));
-        }
-
-        static async Task<IResult> HandleBatch(StartProcessMessage processMessage, ServiceBusSender sender)
-        {
-            var serviceBusMessages = Enumerable.Range(0, processMessage.NumberOfMessages).Select(x =>
-                new ServiceBusMessage(JsonSerializer.Serialize(processMessage))
-                {
-                    ContentType = "application/json",
-                    MessageId = Guid.CreateVersion7(DateTimeOffset.Now).ToString()
-                }).ToList();
-
-            var messages = new List<ServiceBusMessage>();
-
-            Activity.Current?.AddEvent(new ActivityEvent("Sending messages",
-                tags: new ActivityTagsCollection
-                    { new KeyValuePair<string, object?>("MessageIds", string.Join(",", serviceBusMessages.Select(m => m.MessageId))) }));
-
-            if (processMessage.StartNewTrace)
-            {
-                var currentActivity = Activity.Current;
-                Activity.Current = null;
-                var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
-                foreach (var serviceBusMessage in messages)
-                {
-                    serviceBusMessage.InjectContext();
-                }
-
-                messages.AddRange(serviceBusMessages);
-                newActivity?.Dispose();
-                Activity.Current = currentActivity;
-            }
-            else if (processMessage is { StartNewTrace: true, UseLinks: true })
-            {
-                var currentActivity = Activity.Current;
-                Activity.Current = null;
-                var newActivity = ActivityConfig.Source.StartActivity("NewTrace");
-                if (currentActivity is not null)
+                if (processMessage.UseLinks && currentActivity is not null)
                 {
                     newActivity?.AddLink(new ActivityLink(currentActivity.Context));
                 }
 
-                foreach (var serviceBusMessage in serviceBusMessages)
-                {
-                    serviceBusMessage.InjectContext();
-                }
-
-                messages.AddRange(serviceBusMessages);
-                newActivity?.Dispose();
-                Activity.Current = currentActivity;
-            }
-            else
-            {
-                foreach (var serviceBusMessage in messages)
-                {
-                    serviceBusMessage.InjectContext();
-                }
-
-                messages.AddRange(serviceBusMessages);
+                newActivity.AddMessageTags(demoMessage, destination: "api-topic");
+                serviceBusMessage = DemoObservability.CreateServiceBusMessage(demoMessage);
             }
 
-            var batch = await sender.CreateMessageBatchAsync();
+            Activity.Current = currentActivity;
+        }
+        else
+        {
+            serviceBusMessage = DemoObservability.CreateServiceBusMessage(demoMessage);
+        }
 
-            foreach (var _ in messages.Where(serviceBusMessage => !batch.TryAddMessage(serviceBusMessage)))
+        activity?.AddEvent(new ActivityEvent("message.published", tags: new ActivityTagsCollection
+        {
+            new KeyValuePair<string, object?>("messaging.message.id", serviceBusMessage.MessageId),
+            new KeyValuePair<string, object?>("messaging.destination.name", "api-topic"),
+            new KeyValuePair<string, object?>("demo.message_index", i)
+        }));
+        messages.Add(serviceBusMessage);
+    }
+
+    if (processMessage.Batch)
+    {
+        var batch = await sender.CreateMessageBatchAsync();
+
+        foreach (var serviceBusMessage in messages)
+        {
+            if (!batch.TryAddMessage(serviceBusMessage))
             {
                 return Results.BadRequest("Message too large to fit in batch");
             }
-
-            await sender.SendMessagesAsync(batch);
-            return Results.Ok(new StartProcessResponse(processMessage.UseLinks,
-                messages.Select(m => m.MessageId).ToList(),
-                processMessage.StartNewTrace,
-                processMessage.Batch));
         }
-    })
-    .WithName("StartProcess")
-    .WithDescription("Starts a process that sends messages to the api-topic queue")
-    .WithHttpLogging(HttpLoggingFields.All)
-    .Produces<StartProcessResponse>(StatusCodes.Status200OK, "application/json");
 
+        await sender.SendMessagesAsync(batch);
+    }
+    else
+    {
+        await sender.SendMessagesAsync(messages);
+    }
 
-app.Run();
+    DemoObservability.RecordPublished(new OtelDemoMessage { WorkflowId = workflowId, Scenario = scenario, FailureMode = processMessage.FailureMode }, "api-topic", messages.Count);
 
+    return Results.Ok(new StartProcessResponse(
+        workflowId,
+        scenario,
+        processMessage.UseLinks,
+        messages.Select(m => m.MessageId).ToList(),
+        processMessage.StartNewTrace,
+        processMessage.Batch,
+        processMessage.FailureMode,
+        "http://localhost:18888",
+        $"Search Aspire for workflow id {workflowId} or message id {messages[0].MessageId}"));
+}
 
-record StartProcessMessage(bool UseLinks, int NumberOfMessages, bool StartNewTrace, bool Batch);
+record StartProcessMessage(bool UseLinks, int NumberOfMessages, bool StartNewTrace, bool Batch, FailureMode FailureMode = FailureMode.None, string? Scenario = null);
 
-record StartProcessResponse(bool UseLinks, List<string> MessageIds, bool StartNewTrace, bool Batch);
+record StartProcessResponse(
+    string WorkflowId,
+    string Scenario,
+    bool UseLinks,
+    List<string> MessageIds,
+    bool StartNewTrace,
+    bool Batch,
+    FailureMode FailureMode,
+    string AspireUrl,
+    string SearchHint);
 
 public class HealthCheckSettings
 {

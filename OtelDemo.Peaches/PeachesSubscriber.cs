@@ -15,21 +15,46 @@ public class PeachesSubscriber(
     public override async Task HandleMessage(ProcessMessageEventArgs args, CancellationToken token)
     {
         var otelDemoMessage = args.Message.Body.ToObjectFromJson<OtelDemoMessage>()!;
-        using var activity = ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks);
+        var stopwatch = Stopwatch.StartNew();
+        Activity? activity = null;
 
-        activity?.AddEvent(new ActivityEvent("Processing message"));
-
-
-        var newMessage = new ServiceBusMessage(args.Message.Body)
+        try
         {
-            ContentType = "application/json"
-        };
-        newMessage.ApplicationProperties.Add(Constants.DestinationQueueName, "pears");
+            activity = ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks, "peaches.process");
+            activity.AddMessageTags(otelDemoMessage, args.Message, "peaches");
 
-        newMessage.InjectContext();
+            if (args.Message.DeliveryCount > 1)
+            {
+                DemoObservability.RecordRetryObserved(otelDemoMessage, "peaches");
+            }
 
-        await Sender!.SendMessageAsync(newMessage, token);
+            Logger.LogInformation("Peaches received message {MessageId} for workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
 
-        await args.CompleteMessageAsync(args.Message, token);
+            await DemoObservability.ApplyFailureModeAsync(otelDemoMessage, args.Message, "Peaches", token);
+
+            activity?.AddEvent(new ActivityEvent("message.received"));
+            var newMessage = DemoObservability.CreateServiceBusMessage(otelDemoMessage, args.Message.MessageId);
+            newMessage.ApplicationProperties.Add(Constants.DestinationQueueName, "pears");
+            await Sender!.SendMessageAsync(newMessage, token);
+
+            DemoObservability.RecordForwarded(otelDemoMessage, "pears");
+            await args.CompleteMessageAsync(args.Message, token);
+            DemoObservability.RecordProcessed(otelDemoMessage, "peaches", "success");
+            DemoObservability.RecordProcessingDuration(otelDemoMessage, "peaches", stopwatch.Elapsed, "success");
+        }
+        catch (Exception exception)
+        {
+            activity.RecordException(exception);
+            DemoObservability.RecordFailed(otelDemoMessage, "peaches");
+            DemoObservability.RecordProcessingDuration(otelDemoMessage, "peaches", stopwatch.Elapsed, "failed");
+            Logger.LogError(exception, "Peaches failed message {MessageId} for workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
+            throw;
+        }
+        finally
+        {
+            activity?.Dispose();
+        }
     }
 }

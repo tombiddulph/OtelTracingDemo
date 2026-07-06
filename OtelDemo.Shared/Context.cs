@@ -7,7 +7,7 @@ namespace OtelDemo.Shared;
 
 public static class ContextHelper
 {
-    public static Activity? CreateActivityFromMessage(this ActivitySource source, ServiceBusReceivedMessage message, bool useLinks)
+    public static Activity? CreateActivityFromMessage(this ActivitySource source, ServiceBusReceivedMessage message, bool useLinks, string activityName = "ProcessMessage")
     {
         Activity? activity;
         var context = Propagators.DefaultTextMapPropagator.Extract(default, message.ApplicationProperties,
@@ -25,7 +25,7 @@ public static class ContextHelper
 
         if (useLinks)
         {
-            activity = source.StartActivity("ProcessMessage", ActivityKind.Consumer);
+            activity = source.StartActivity(activityName, ActivityKind.Consumer);
             activity?.AddLink(new ActivityLink(context.ActivityContext));
         }
         else
@@ -36,11 +36,15 @@ public static class ContextHelper
                 false => default
             };
 
-            activity = source.StartActivity("ProcessMessage", ActivityKind.Consumer, propagationContext.ActivityContext);
+            activity = source.StartActivity(activityName, ActivityKind.Consumer, propagationContext.ActivityContext);
 
 
         }
 
+
+        activity?.SetTag("baggage.workflow.id", Baggage.GetBaggage("workflow.id"));
+        activity?.SetTag("baggage.demo.scenario", Baggage.GetBaggage("demo.scenario"));
+        activity?.SetTag("baggage.demo.trace_mode", Baggage.GetBaggage("demo.trace_mode"));
 
         return activity;
     }

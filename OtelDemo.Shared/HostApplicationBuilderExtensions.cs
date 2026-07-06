@@ -82,6 +82,7 @@ public static class HostApplicationBuilderExtensions
             {
                 builder
                     .AddMeter(serviceName)
+                    .AddMeter(DemoObservability.MeterName)
                     .AddProcessInstrumentation()
                     .AddRuntimeInstrumentation()
                     .AddHttpClientInstrumentation()

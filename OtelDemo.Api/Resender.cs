@@ -26,20 +26,28 @@ public class Resender : MessageSubscriberBase
 
     public override async Task HandleMessage(ProcessMessageEventArgs args, CancellationToken token)
     {
+        var stopwatch = Stopwatch.StartNew();
+        Activity? activity = null;
+        OtelDemoMessage? otelDemoMessage = null;
+
         try
         {
-            var otelDemoMessage = args.Message.Body.ToObjectFromJson<OtelDemoMessage>()!;
-            using var activity =
-                ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks);
+            otelDemoMessage = args.Message.Body.ToObjectFromJson<OtelDemoMessage>()!;
+            activity = ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks, "api.route_message");
 
-            activity?.AddEvent(new ActivityEvent("Processing message"));
-
-            var newMessage = new ServiceBusMessage(args.Message.Body)
+            if (args.Message.DeliveryCount > 1)
             {
-                ContentType = "application/json"
-            };
+                DemoObservability.RecordRetryObserved(otelDemoMessage, "mangoes");
+            }
 
-            newMessage.InjectContext();
+            activity.AddMessageTags(otelDemoMessage, args.Message, "mangoes");
+            Logger.LogInformation("API resender received message {MessageId} for workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
+
+            await DemoObservability.ApplyFailureModeAsync(otelDemoMessage, args.Message, "API resender", token);
+
+            var newMessage = DemoObservability.CreateServiceBusMessage(otelDemoMessage, args.Message.MessageId);
+
             var destinationQueue = args.Message.ApplicationProperties.TryGetValue(Constants.DestinationQueueName, out var value);
 
             if (!destinationQueue)
@@ -48,16 +56,41 @@ public class Resender : MessageSubscriberBase
             }
 
 
-            _destinationQueues.TryGetValue(value!.ToString()!, out var sender);
+            if (!_destinationQueues.TryGetValue(value!.ToString()!, out var sender))
+            {
+                throw new InvalidOperationException($"Destination queue '{value}' is not configured");
+            }
 
-            await sender!.SendMessageAsync(newMessage, token);
+            await sender.SendMessageAsync(newMessage, token);
+
+            DemoObservability.RecordForwarded(otelDemoMessage, value!.ToString()!);
+            activity?.AddEvent(new ActivityEvent("message.routed", tags: new ActivityTagsCollection
+            {
+                new KeyValuePair<string, object?>("messaging.destination.name", value!.ToString()),
+                new KeyValuePair<string, object?>("messaging.message.id", newMessage.MessageId)
+            }));
 
             await args.CompleteMessageAsync(args.Message, token);
+            DemoObservability.RecordProcessed(otelDemoMessage, "mangoes", "success");
+            DemoObservability.RecordProcessingDuration(otelDemoMessage, "mangoes", stopwatch.Elapsed, "success");
         }
         catch (Exception e)
         {
-            Logger.LogError(e, "Error processing message");
+            activity.RecordException(e);
+
+            if (otelDemoMessage is not null)
+            {
+                DemoObservability.RecordFailed(otelDemoMessage, "mangoes");
+                DemoObservability.RecordProcessingDuration(otelDemoMessage, "mangoes", stopwatch.Elapsed, "failed");
+            }
+
+            Logger.LogError(e, "API resender failed message {MessageId} for workflow {WorkflowId}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage?.WorkflowId, args.Message.DeliveryCount);
             throw;
+        }
+        finally
+        {
+            activity?.Dispose();
         }
     }
 }

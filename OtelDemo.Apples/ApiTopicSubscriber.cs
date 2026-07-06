@@ -11,18 +11,59 @@ public class ApiTopicSubscriber(IAzureClientFactory<ServiceBusSender> senderFact
     public override async Task HandleMessage(ProcessMessageEventArgs args, CancellationToken token)
     {
         var otelDemoMessage = args.Message.Body.ToObjectFromJson<OtelDemoMessage>()!;
+        var stopwatch = Stopwatch.StartNew();
+        Activity? activity = null;
 
-        using var activity = ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks);
-
-        activity?.AddEvent(new ActivityEvent("Processing message"));
-
-        var newMessage = new ServiceBusMessage(args.Message.Body)
+        try
         {
-            ContentType = "application/json"
-        };
-        newMessage.ApplicationProperties.Add(Constants.DestinationQueueName, "peaches");
-        newMessage.InjectContext();
-        await Sender!.SendMessageAsync(newMessage, token);
-        await args.CompleteMessageAsync(args.Message, token);
+            activity = ActivityConfig.Source.CreateActivityFromMessage(args.Message, otelDemoMessage.UseLinks, "apples.process");
+            activity.AddMessageTags(otelDemoMessage, args.Message, "api-topic");
+
+            if (args.Message.DeliveryCount > 1)
+            {
+                DemoObservability.RecordRetryObserved(otelDemoMessage, "api-topic");
+            }
+
+            Logger.LogInformation("Apples received message {MessageId} for workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
+
+            await DemoObservability.ApplyFailureModeAsync(otelDemoMessage, args.Message, "Apples", token);
+
+            activity?.AddEvent(new ActivityEvent("message.received"));
+            var destinations = otelDemoMessage.Scenario == DemoScenarios.Fanout
+                ? new[] { "peaches", "pears" }
+                : ["peaches"];
+
+            foreach (var destination in destinations)
+            {
+                var newMessage = DemoObservability.CreateServiceBusMessage(otelDemoMessage, args.Message.MessageId);
+                newMessage.ApplicationProperties.Add(Constants.DestinationQueueName, destination);
+                await Sender!.SendMessageAsync(newMessage, token);
+
+                DemoObservability.RecordForwarded(otelDemoMessage, destination);
+                activity?.AddEvent(new ActivityEvent("message.forwarded", tags: new ActivityTagsCollection
+                {
+                    new KeyValuePair<string, object?>("messaging.destination.name", destination),
+                    new KeyValuePair<string, object?>("messaging.message.id", newMessage.MessageId)
+                }));
+            }
+
+            await args.CompleteMessageAsync(args.Message, token);
+            DemoObservability.RecordProcessed(otelDemoMessage, "api-topic", "success");
+            DemoObservability.RecordProcessingDuration(otelDemoMessage, "api-topic", stopwatch.Elapsed, "success");
+        }
+        catch (Exception exception)
+        {
+            activity.RecordException(exception);
+            DemoObservability.RecordFailed(otelDemoMessage, "api-topic");
+            DemoObservability.RecordProcessingDuration(otelDemoMessage, "api-topic", stopwatch.Elapsed, "failed");
+            Logger.LogError(exception, "Apples failed message {MessageId} for workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
+            throw;
+        }
+        finally
+        {
+            activity?.Dispose();
+        }
     }
 }
