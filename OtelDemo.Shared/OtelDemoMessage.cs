@@ -3,7 +3,12 @@
 public record class OtelDemoMessage
 {
     public string WorkflowId { get; set; } = Guid.CreateVersion7().ToString();
+    public string OrderId { get; set; } = Guid.CreateVersion7().ToString();
     public string Scenario { get; set; } = DemoScenarios.LinearTrace;
+    public decimal Amount { get; set; }
+    public bool InventoryReserved { get; set; }
+    public bool PaymentAuthorized { get; set; }
+    public bool NotificationSent { get; set; }
     public bool UseLinks { get; set; }
     public bool StartNewTrace { get; set; }
     public bool Batch { get; set; }
@@ -23,6 +28,7 @@ public enum FailureMode
 
 public static class DemoScenarios
 {
+    public const string OrderFlow = "order-flow";
     public const string LinearTrace = "linear-trace";
     public const string LinkedTrace = "linked-trace";
     public const string Batch = "batch";

@@ -7,7 +7,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
-using OpenTelemetry.Exporter;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -99,7 +98,7 @@ public static class HostApplicationBuilderExtensions
                     });
             })
             .WithLogging(builder => { })
-            .UseOtlpExporter(OtlpExportProtocol.Grpc, new Uri("http://oteldemo.collector:4317"));
+            .UseOtlpExporter();
 
         hostBuilder.Logging.AddOpenTelemetry(options =>
         {

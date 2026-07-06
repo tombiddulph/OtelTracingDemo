@@ -37,12 +37,12 @@ public class Resender : MessageSubscriberBase
 
             if (args.Message.DeliveryCount > 1)
             {
-                DemoObservability.RecordRetryObserved(otelDemoMessage, "mangoes");
+                DemoObservability.RecordRetryObserved(otelDemoMessage, Constants.ApiInboxQueue);
             }
 
-            activity.AddMessageTags(otelDemoMessage, args.Message, "mangoes");
-            Logger.LogInformation("API resender received message {MessageId} for workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
-                args.Message.MessageId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
+            activity.AddMessageTags(otelDemoMessage, args.Message, Constants.ApiInboxQueue);
+            Logger.LogInformation("API resender received message {MessageId} for order {OrderId}, workflow {WorkflowId}, scenario {Scenario}, delivery {DeliveryCount}",
+                args.Message.MessageId, otelDemoMessage.OrderId, otelDemoMessage.WorkflowId, otelDemoMessage.Scenario, args.Message.DeliveryCount);
 
             await DemoObservability.ApplyFailureModeAsync(otelDemoMessage, args.Message, "API resender", token);
 
@@ -71,8 +71,8 @@ public class Resender : MessageSubscriberBase
             }));
 
             await args.CompleteMessageAsync(args.Message, token);
-            DemoObservability.RecordProcessed(otelDemoMessage, "mangoes", "success");
-            DemoObservability.RecordProcessingDuration(otelDemoMessage, "mangoes", stopwatch.Elapsed, "success");
+            DemoObservability.RecordProcessed(otelDemoMessage, Constants.ApiInboxQueue, "success");
+            DemoObservability.RecordProcessingDuration(otelDemoMessage, Constants.ApiInboxQueue, stopwatch.Elapsed, "success");
         }
         catch (Exception e)
         {
@@ -80,8 +80,8 @@ public class Resender : MessageSubscriberBase
 
             if (otelDemoMessage is not null)
             {
-                DemoObservability.RecordFailed(otelDemoMessage, "mangoes");
-                DemoObservability.RecordProcessingDuration(otelDemoMessage, "mangoes", stopwatch.Elapsed, "failed");
+                DemoObservability.RecordFailed(otelDemoMessage, Constants.ApiInboxQueue);
+                DemoObservability.RecordProcessingDuration(otelDemoMessage, Constants.ApiInboxQueue, stopwatch.Elapsed, "failed");
             }
 
             Logger.LogError(e, "API resender failed message {MessageId} for workflow {WorkflowId}, delivery {DeliveryCount}",

@@ -26,12 +26,17 @@ public static class DemoObservability
         }
 
         activity.SetTag("demo.workflow_id", message.WorkflowId);
+        activity.SetTag("order.id", message.OrderId);
+        activity.SetTag("order.amount", message.Amount);
         activity.SetTag("demo.scenario", message.Scenario);
         activity.SetTag("demo.use_links", message.UseLinks);
         activity.SetTag("demo.start_new_trace", message.StartNewTrace);
         activity.SetTag("demo.batch", message.Batch);
         activity.SetTag("demo.failure_mode", message.FailureMode.ToString());
         activity.SetTag("demo.step", message.Step);
+        activity.SetTag("inventory.reserved", message.InventoryReserved);
+        activity.SetTag("payment.authorized", message.PaymentAuthorized);
+        activity.SetTag("notification.sent", message.NotificationSent);
         activity.SetTag("messaging.system", "azure_service_bus");
 
         if (!string.IsNullOrEmpty(destination))
@@ -80,6 +85,7 @@ public static class DemoObservability
     public static void SetBaggage(OtelDemoMessage message)
     {
         Baggage.SetBaggage("workflow.id", message.WorkflowId);
+        Baggage.SetBaggage("order.id", message.OrderId);
         Baggage.SetBaggage("demo.scenario", message.Scenario);
         Baggage.SetBaggage("demo.trace_mode", message.UseLinks ? "links" : "parent");
     }
@@ -102,10 +108,19 @@ public static class DemoObservability
         };
 
         serviceBusMessage.ApplicationProperties["WorkflowId"] = outgoingMessage.WorkflowId;
+        serviceBusMessage.ApplicationProperties["OrderId"] = outgoingMessage.OrderId;
         serviceBusMessage.ApplicationProperties["Scenario"] = outgoingMessage.Scenario;
         serviceBusMessage.ApplicationProperties["FailureMode"] = outgoingMessage.FailureMode.ToString();
         serviceBusMessage.InjectContext();
 
+        return serviceBusMessage;
+    }
+
+    public static ServiceBusMessage CreateAuditMessage(OtelDemoMessage message, string eventType, string? parentMessageId = null)
+    {
+        var serviceBusMessage = CreateServiceBusMessage(message, parentMessageId);
+        serviceBusMessage.Subject = eventType;
+        serviceBusMessage.ApplicationProperties[Constants.AuditEventType] = eventType;
         return serviceBusMessage;
     }
 
@@ -132,6 +147,7 @@ public static class DemoObservability
     [
         new KeyValuePair<string, object?>("scenario", message.Scenario),
         new KeyValuePair<string, object?>("workflow_id", message.WorkflowId),
+        new KeyValuePair<string, object?>("order_id", message.OrderId),
         new KeyValuePair<string, object?>("destination", destination),
         new KeyValuePair<string, object?>("outcome", outcome),
         new KeyValuePair<string, object?>("failure_mode", message.FailureMode.ToString())

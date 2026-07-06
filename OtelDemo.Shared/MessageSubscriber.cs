@@ -10,6 +10,7 @@ public abstract class MessageSubscriberBase : BackgroundService, IAsyncDisposabl
 {
     private CancellationTokenSource _cts = null!;
     private readonly ServiceBusProcessor _processor;
+    private readonly IAzureClientFactory<ServiceBusSender>? _senderFactory;
     protected readonly ServiceBusSender? Sender;
     protected readonly ILogger<MessageSubscriberBase> Logger;
 
@@ -19,6 +20,7 @@ public abstract class MessageSubscriberBase : BackgroundService, IAsyncDisposabl
         ILogger<MessageSubscriberBase> logger)
     {
         Logger = logger;
+        _senderFactory = senderFactory;
         _processor = processorFactory.CreateClient(options.Value.ProcessorQueueOrTopicName);
 
 
@@ -76,6 +78,16 @@ public abstract class MessageSubscriberBase : BackgroundService, IAsyncDisposabl
 
 
     public abstract Task HandleMessage(ProcessMessageEventArgs args, CancellationToken token);
+
+    protected ServiceBusSender GetSender(string senderName)
+    {
+        if (_senderFactory is null)
+        {
+            throw new InvalidOperationException($"No Service Bus sender factory is configured for sender '{senderName}'.");
+        }
+
+        return _senderFactory.CreateClient(senderName);
+    }
 
     private static Task CompleteOnCancelAsync(CancellationToken token)
     {

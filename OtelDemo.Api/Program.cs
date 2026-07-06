@@ -17,7 +17,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
-builder.AddServiceBus(processorName: "mangoes", senderNames: ["api-topic", "kiwis", "pears", "peaches"]);
+builder.AddServiceBus(processorName: Constants.ApiInboxQueue, senderNames: [Constants.OrdersTopic, Constants.NotificationsQueue, Constants.PaymentsQueue, Constants.InventoryQueue]);
 builder.AddOpenTelemetry(ActivityConfig.Source.Name, opts => opts.AddAspNetCoreInstrumentation());
 
 builder.Services.AddOptions<HealthCheckSettings>().Bind(builder.Configuration.GetSection("HealthCheckSettings"));
@@ -30,6 +30,8 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseStatusCodePages();
 app.MapHealthChecks("/health");
 app.MapOpenApi();
@@ -75,12 +77,14 @@ app.Run();
 static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage, IAzureClientFactory<ServiceBusSender> senderFactory, ILogger logger)
 {
     using var activity = ActivityConfig.Source.StartActivity("api.start_process");
-    var sender = senderFactory.CreateClient("api-topic");
+    var sender = senderFactory.CreateClient(Constants.OrdersTopic);
     var workflowId = Guid.CreateVersion7().ToString();
+    var orderId = Guid.CreateVersion7().ToString();
     var scenario = string.IsNullOrWhiteSpace(processMessage.Scenario) ? DemoScenarios.LinearTrace : processMessage.Scenario;
     var messages = new List<ServiceBusMessage>();
 
     activity?.SetTag("demo.workflow_id", workflowId);
+    activity?.SetTag("order.id", orderId);
     activity?.SetTag("demo.scenario", scenario);
     activity?.SetTag("demo.use_links", processMessage.UseLinks);
     activity?.SetTag("demo.start_new_trace", processMessage.StartNewTrace);
@@ -95,7 +99,9 @@ static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage,
         var demoMessage = new OtelDemoMessage
         {
             WorkflowId = workflowId,
+            OrderId = orderId,
             Scenario = scenario,
+            Amount = 99.95m + i,
             UseLinks = processMessage.UseLinks,
             StartNewTrace = processMessage.StartNewTrace,
             Batch = processMessage.Batch,
@@ -117,7 +123,7 @@ static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage,
                     newActivity?.AddLink(new ActivityLink(currentActivity.Context));
                 }
 
-                newActivity.AddMessageTags(demoMessage, destination: "api-topic");
+                newActivity.AddMessageTags(demoMessage, destination: Constants.OrdersTopic);
                 serviceBusMessage = DemoObservability.CreateServiceBusMessage(demoMessage);
             }
 
@@ -131,7 +137,7 @@ static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage,
         activity?.AddEvent(new ActivityEvent("message.published", tags: new ActivityTagsCollection
         {
             new KeyValuePair<string, object?>("messaging.message.id", serviceBusMessage.MessageId),
-            new KeyValuePair<string, object?>("messaging.destination.name", "api-topic"),
+            new KeyValuePair<string, object?>("messaging.destination.name", Constants.OrdersTopic),
             new KeyValuePair<string, object?>("demo.message_index", i)
         }));
         messages.Add(serviceBusMessage);
@@ -156,7 +162,7 @@ static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage,
         await sender.SendMessagesAsync(messages);
     }
 
-    DemoObservability.RecordPublished(new OtelDemoMessage { WorkflowId = workflowId, Scenario = scenario, FailureMode = processMessage.FailureMode }, "api-topic", messages.Count);
+    DemoObservability.RecordPublished(new OtelDemoMessage { WorkflowId = workflowId, OrderId = orderId, Scenario = scenario, FailureMode = processMessage.FailureMode }, Constants.OrdersTopic, messages.Count);
 
     return Results.Ok(new StartProcessResponse(
         workflowId,
@@ -166,7 +172,7 @@ static async Task<IResult> StartProcessAsync(StartProcessMessage processMessage,
         processMessage.StartNewTrace,
         processMessage.Batch,
         processMessage.FailureMode,
-        "http://localhost:18888",
+        "Aspire Dashboard",
         $"Search Aspire for workflow id {workflowId} or message id {messages[0].MessageId}"));
 }
 
@@ -185,7 +191,7 @@ record StartProcessResponse(
 
 public class HealthCheckSettings
 {
-    public string SenderName { get; set; } = "kiwis";
+    public string SenderName { get; set; } = Constants.NotificationsQueue;
 }
 
 public class DestinationQueueSettings

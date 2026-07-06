@@ -17,14 +17,6 @@ jobs:
         include:
           - dockerfile: ./OtelDemo.Api/Dockerfile
             image: ghcr.io/tombiddulph/OtelDemo.Api
-          - dockerfile: ./OtelDemo.Apples/Dockerfile
-            image: ghcr.io/tombiddulph/OtelDemo.Apples
-          - dockerfile: ./OtelDemo.Kiwis/Dockerfile
-            image: ghcr.io/tombiddulph/OtelDemo.Kiwis
-          - dockerfile: ./OtelDemo.Peaches/Dockerfile
-            image: ghcr.io/tombiddulph/OtelDemo.Peaches
-          - dockerfile: ./OtelDemo.Pears/Dockerfile
-            image: ghcr.io/tombiddulph/OtelDemo.Pears
 
     permissions:
       contents: read

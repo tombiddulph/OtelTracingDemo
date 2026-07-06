@@ -1,0 +1,56 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlp/aspire:
+    endpoint: ${env:ASPIRE_ENDPOINT}
+    tls:
+      insecure: true
+
+service:
+  telemetry:
+    resource:
+      service.name: opentelemetry-collector
+      service.namespace: oteldemo
+    logs:
+      level: info
+      encoding: json
+      processors:
+        - batch:
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: ${env:ASPIRE_ENDPOINT}
+                insecure: true
+    metrics:
+      level: detailed
+      readers:
+        - periodic:
+            interval: 10000
+            exporter:
+              otlp:
+                protocol: grpc
+                endpoint: ${env:ASPIRE_ENDPOINT}
+                insecure: true
+                temporality_preference: cumulative
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/aspire]

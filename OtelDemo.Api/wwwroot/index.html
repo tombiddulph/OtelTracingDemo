@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Otel Tracing Demo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0f1f;
+      --panel: #111a33;
+      --panel-strong: #172348;
+      --text: #edf4ff;
+      --muted: #9fb0d0;
+      --accent: #7dd3fc;
+      --accent-strong: #38bdf8;
+      --ok: #86efac;
+      --bad: #fca5a5;
+      --border: #26365f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.2), transparent 34rem),
+        radial-gradient(circle at bottom right, rgba(129, 140, 248, 0.18), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 48px 0;
+    }
+
+    header {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2.2rem, 5vw, 4.5rem);
+      line-height: 0.95;
+      letter-spacing: -0.06em;
+    }
+
+    .lede {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 1.08rem;
+      line-height: 1.6;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background: rgba(17, 26, 51, 0.82);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+      backdrop-filter: blur(16px);
+    }
+
+    .card-body {
+      padding: 22px;
+    }
+
+    .scenarios {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .scenario {
+      min-height: 132px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: linear-gradient(145deg, rgba(23, 35, 72, 0.9), rgba(17, 26, 51, 0.76));
+      color: var(--text);
+      text-align: left;
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+
+    .scenario:hover,
+    .scenario:focus-visible {
+      transform: translateY(-2px);
+      border-color: var(--accent-strong);
+      outline: none;
+    }
+
+    .scenario strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 1rem;
+    }
+
+    .scenario span {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    form {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #0c1429;
+      color: var(--text);
+      padding: 11px 12px;
+      font: inherit;
+    }
+
+    .checks {
+      display: grid;
+      gap: 10px;
+      padding: 6px 0;
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+    }
+
+    .check input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent-strong);
+    }
+
+    .primary,
+    .secondary {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: #062033;
+    }
+
+    .secondary {
+      display: inline-flex;
+      justify-content: center;
+      text-decoration: none;
+      background: var(--panel-strong);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .primary:disabled {
+      cursor: wait;
+      filter: grayscale(0.4);
+      opacity: 0.76;
+    }
+
+    .result {
+      margin-top: 20px;
+      border-top: 1px solid var(--border);
+      padding-top: 18px;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .status.ok {
+      color: var(--ok);
+    }
+
+    .status.bad {
+      color: var(--bad);
+    }
+
+    dl {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+    }
+
+    dt {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    dd {
+      margin: 3px 0 0;
+      overflow-wrap: anywhere;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 0.92rem;
+    }
+
+    .hint {
+      color: var(--muted);
+      line-height: 1.5;
+      margin: 0 0 16px;
+    }
+
+    @media (max-width: 880px) {
+      main {
+        padding: 28px 0;
+      }
+
+      .layout,
+      .scenarios {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Start an order trace.</h1>
+      <p class="lede">Trigger order-processing scenarios through API, Orders, Inventory, Payments, Notifications, and linked Audit spans. Search for the returned workflow id or message id in Aspire.</p>
+    </header>
+
+    <div class="layout">
+      <section class="card">
+        <div class="card-body">
+          <div class="scenarios" id="scenarios"></div>
+        </div>
+      </section>
+
+      <aside class="card">
+        <div class="card-body">
+          <p class="hint">Use a preset or tune the request manually.</p>
+
+          <form id="trace-form">
+            <label>
+              Scenario
+              <select id="scenario" name="scenario">
+                <option value="linear-trace">Order flow</option>
+                <option value="linked-trace">Linked order flow</option>
+                <option value="batch">Batch orders</option>
+                <option value="fanout">Parallel validation</option>
+                <option value="retry-then-success">Payment retry</option>
+                <option value="dead-letter">Payment dead-letter</option>
+                <option value="external-call-failure">Notification webhook failure</option>
+              </select>
+            </label>
+
+            <label>
+              Number of messages
+              <input id="numberOfMessages" name="numberOfMessages" type="number" min="1" max="100" value="1">
+            </label>
+
+            <label>
+              Failure mode
+              <select id="failureMode" name="failureMode">
+                <option value="None">None</option>
+                <option value="ThrowOnce">ThrowOnce</option>
+                <option value="AlwaysThrow">AlwaysThrow</option>
+                <option value="SlowProcessing">SlowProcessing</option>
+                <option value="ExternalCallFailure">ExternalCallFailure</option>
+              </select>
+            </label>
+
+            <div class="checks">
+              <label class="check"><input id="useLinks" name="useLinks" type="checkbox"> Use activity links</label>
+              <label class="check"><input id="startNewTrace" name="startNewTrace" type="checkbox"> Start new trace</label>
+              <label class="check"><input id="batch" name="batch" type="checkbox"> Send as batch</label>
+            </div>
+
+            <button class="primary" id="submit" type="submit">Start trace</button>
+            <a class="secondary" href="http://localhost:18888" target="_blank" rel="noreferrer">Open Aspire dashboard</a>
+          </form>
+
+          <section class="result" id="result" hidden>
+            <div class="status" id="status">Waiting</div>
+            <dl id="details"></dl>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const presets = [
+      {
+        title: "Order flow",
+        description: "Parent context inheritance through Orders, Inventory, Payments, and Notifications.",
+        request: { useLinks: false, numberOfMessages: 1, startNewTrace: false, batch: false, failureMode: "None", scenario: "linear-trace" }
+      },
+      {
+        title: "Linked order flow",
+        description: "Starts a new trace and links it back to the originating API request.",
+        request: { useLinks: true, numberOfMessages: 1, startNewTrace: true, batch: false, failureMode: "None", scenario: "linked-trace" }
+      },
+      {
+        title: "Batch orders",
+        description: "Publishes ten order messages in a single Service Bus batch.",
+        request: { useLinks: false, numberOfMessages: 10, startNewTrace: false, batch: true, failureMode: "None", scenario: "batch" }
+      },
+      {
+        title: "Parallel validation",
+        description: "Orders fans out to Inventory and Payments to show parallel work.",
+        request: { useLinks: true, numberOfMessages: 1, startNewTrace: true, batch: false, failureMode: "None", scenario: "fanout" }
+      },
+      {
+        title: "Payment retry",
+        description: "Payments throws once, then succeeds after Service Bus retry.",
+        request: { useLinks: false, numberOfMessages: 1, startNewTrace: false, batch: false, failureMode: "ThrowOnce", scenario: "retry-then-success" }
+      },
+      {
+        title: "Payment dead-letter",
+        description: "Payments always throws to show repeated failures and dead lettering.",
+        request: { useLinks: false, numberOfMessages: 1, startNewTrace: false, batch: false, failureMode: "AlwaysThrow", scenario: "dead-letter" }
+      },
+      {
+        title: "Notification webhook failure",
+        description: "Notifications calls a failing webhook endpoint and records the error.",
+        request: { useLinks: false, numberOfMessages: 1, startNewTrace: false, batch: false, failureMode: "ExternalCallFailure", scenario: "external-call-failure" }
+      }
+    ];
+
+    const form = document.querySelector("#trace-form");
+    const result = document.querySelector("#result");
+    const status = document.querySelector("#status");
+    const details = document.querySelector("#details");
+    const submit = document.querySelector("#submit");
+
+    document.querySelector("#scenarios").replaceChildren(...presets.map((preset) => {
+      const button = document.createElement("button");
+      button.className = "scenario";
+      button.type = "button";
+      button.innerHTML = `<strong>${preset.title}</strong><span>${preset.description}</span>`;
+      button.addEventListener("click", () => {
+        setForm(preset.request);
+        send(preset.request);
+      });
+      return button;
+    }));
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      send(getFormRequest());
+    });
+
+    function getFormRequest() {
+      return {
+        useLinks: document.querySelector("#useLinks").checked,
+        numberOfMessages: Number(document.querySelector("#numberOfMessages").value),
+        startNewTrace: document.querySelector("#startNewTrace").checked,
+        batch: document.querySelector("#batch").checked,
+        failureMode: document.querySelector("#failureMode").value,
+        scenario: document.querySelector("#scenario").value
+      };
+    }
+
+    function setForm(request) {
+      document.querySelector("#useLinks").checked = request.useLinks;
+      document.querySelector("#numberOfMessages").value = request.numberOfMessages;
+      document.querySelector("#startNewTrace").checked = request.startNewTrace;
+      document.querySelector("#batch").checked = request.batch;
+      document.querySelector("#failureMode").value = request.failureMode;
+      document.querySelector("#scenario").value = request.scenario;
+    }
+
+    async function send(request) {
+      submit.disabled = true;
+      renderStatus("Sending request...", "");
+
+      try {
+        const response = await fetch("/start-process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(request)
+        });
+
+        const body = await response.json();
+
+        if (!response.ok) {
+          throw new Error(typeof body === "string" ? body : JSON.stringify(body));
+        }
+
+        renderResult(body);
+      } catch (error) {
+        renderStatus(error.message || "Request failed", "bad");
+      } finally {
+        submit.disabled = false;
+      }
+    }
+
+    function renderStatus(message, kind) {
+      result.hidden = false;
+      status.className = `status ${kind}`;
+      status.textContent = message;
+      details.replaceChildren();
+    }
+
+    function renderResult(body) {
+      renderStatus("Trace request sent", "ok");
+
+      const rows = [
+        ["Workflow id", body.workflowId],
+        ["Scenario", body.scenario],
+        ["Message ids", body.messageIds.join(", ")],
+        ["Search hint", body.searchHint]
+      ];
+
+      details.replaceChildren(...rows.flatMap(([label, value]) => {
+        const dt = document.createElement("dt");
+        const dd = document.createElement("dd");
+        dt.textContent = label;
+        dd.textContent = value;
+        return [dt, dd];
+      }));
+    }
+  </script>
+</body>
+</html>

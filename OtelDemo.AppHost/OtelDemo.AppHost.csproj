@@ -1,0 +1,24 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>dotnet-OtelDemo.AppHost-2c4409df-af03-41ac-a436-f7e87f4369f4</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting" />
+    <PackageReference Include="CommunityToolkit.Aspire.Hosting.OpenTelemetryCollector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OtelDemo.Api\OtelDemo.Api.csproj" />
+    <ProjectReference Include="..\OtelDemo.Audit\OtelDemo.Audit.csproj" />
+    <ProjectReference Include="..\OtelDemo.Inventory\OtelDemo.Inventory.csproj" />
+    <ProjectReference Include="..\OtelDemo.Notifications\OtelDemo.Notifications.csproj" />
+    <ProjectReference Include="..\OtelDemo.Orders\OtelDemo.Orders.csproj" />
+    <ProjectReference Include="..\OtelDemo.Payments\OtelDemo.Payments.csproj" />
+  </ItemGroup>
+
+</Project>
